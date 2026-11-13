@@ -1,0 +1,98 @@
+{
+  "format": "agent-fun/kit/v1",
+  "competition": "polymarket-nvidia-ceo-forecast-01",
+  "phase": "dev",
+  "bundle_sha256": "23fbce415ad53a2f83878ee8c7c8169a82a0834c94ea2f97c130dc9b7f49a626",
+  "dataset_sha256": null,
+  "harness_version": "harness@24282c50eff206e7efca4c0f7715fac4b6380dcdfc323c39cc3423fc8367fda6 node v22.23.4",
+  "scorer_version": "scorer@10a363e41634bfd27c12d2ab3f787c2efc950a53bde9a0e57c5c2082b5f71a5f program@003af5496e743b0af82c6dedbfca9652b51eda2ec7fbb319f4ebb00918ad0caa",
+  "pricing_rev": "dcb80a1bb9517e245c6e2e44e2f19b68000c8508c58f8d207e8e4532cbaedae0",
+  "protocol": "agent-fun/program/v1",
+  "files": [
+    {
+      "path": "RULES.txt",
+      "sha256": "1952bcecc62f437b579db3cfe26ed0edf7285b1f1918be86ea5aa244ac2b33e4",
+      "size": 60816
+    },
+    {
+      "path": "cli/makefun.mjs",
+      "sha256": "35514f096e9f3f17c6847fb7689f2221098800e719f9f113318998160f45cc98",
+      "size": 11551428
+    },
+    {
+      "path": "cli/site.json",
+      "sha256": "24c5afb0763ff96dd092a88869fee664366b444f1147e57527cc5fc1b54ab124",
+      "size": 35
+    },
+    {
+      "path": "competition.yaml",
+      "sha256": "211bd225cecbf2eb084a01bf507a0fd6e9b58c12a80eac2cf1e90c3816366325",
+      "size": 50545
+    },
+    {
+      "path": "harness/CODE.sha256",
+      "sha256": "600ff099fc349eadfdbdda75a499f3e657db7099bf8021317bff833648abd1b7",
+      "size": 13838
+    },
+    {
+      "path": "harness/SOURCES.sha256",
+      "sha256": "a7ddcea8f3883fbe96c1874182b20de432692c7d8da35de5a6616b715567a494",
+      "size": 13838
+    },
+    {
+      "path": "harness/harness-src.tar.gz",
+      "sha256": "1b86fb89823bcd601c7c943707f781c68cf971cdddc43a554c4b0be3bb8ee94e",
+      "size": 1811819
+    },
+    {
+      "path": "harness/harness-src.tar.gz.sha256",
+      "sha256": "540dd827440c107c6ffa7de5450c2617b1431e59216dfc109014e2961f880208",
+      "size": 85
+    },
+    {
+      "path": "input/NOTICE.txt",
+      "sha256": "725c411016299d5fd266c2c116f5d62103806125023d9f72887163662528a247",
+      "size": 1398
+    },
+    {
+      "path": "input/p00.in",
+      "sha256": "f1e4b7e18fee07cad1c2c8ff7c3369fe4959ec898a1c899f70ac7bb8995180cc",
+      "size": 148093
+    },
+    {
+      "path": "input/p01.in",
+      "sha256": "17bd21cf1f5d4241301c14aaf61496da25fb142f510015c5b8af4adec7a86730",
+      "size": 176949
+    },
+    {
+      "path": "input/p02.in",
+      "sha256": "926abce9d67abe25cff617cca125026fd2c9d262535a093312594783711b08fa",
+      "size": 205684
+    },
+    {
+      "path": "input/p03.in",
+      "sha256": "f913ea0da871fe6f67acb892c2c63fa2d05529d24b5d72ffeb7203902b634df6",
+      "size": 236855
+    },
+    {
+      "path": "input/p04.in",
+      "sha256": "1c3d9bb6d1b424b77951f97bb39220b53f5e963034230e8dcfe601e23f5fc436",
+      "size": 274029
+    },
+    {
+      "path": "input/p05.in",
+      "sha256": "c8fec1617f9b063fc0f691cea6df9eb4fb09f294afa8dfa8b85d382165f4a554",
+      "size": 311116
+    },
+    {
+      "path": "starter/LICENSE",
+      "sha256": "c31b3812c449f571742f26f51db65810331e15ca53b9ee492f739288da6c6d36",
+      "size": 1104
+    },
+    {
+      "path": "starter/main.ts",
+      "sha256": "edce05df388ea59a2911646da2b5da23227eba189cdafd73f062ff44c701c8f6",
+      "size": 4167
+    }
+  ]
+}

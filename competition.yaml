@@ -1,0 +1,401 @@
+# Polymarket NVIDIA CEO forecast 01: forecast, minute by minute and 4 hours ahead, the Yes price of every trading
+# market of Polymarket's "Next CEO of NVIDIA?" event (https://polymarket.com/event/next-ceo-of-nvidia), as five
+# quantiles a minute, over the 48 hours after entries close. SEALED (finalize, 2026-11-13): open and public, its escrow
+# funded at open, so once seeded its bytes and its three sealed trees never change again (.cosmos/rules/contest-design.mdc:
+# server/db/seed/competitions.ts refuseRulesChange). tests/unit/comp-polymarket-nvidia-ceo-forecast-01.test.ts holds the
+# bundle, its rules' quotes and its grading end to end; tests/unit/canonical-parity.test.ts and
+# tests/unit/contracts-practice-windows.test.ts pin its sha256. The
+# owner's ask of 2026-11-12: "software that predicts most accurately the tick-by-tick movement of the prediction market
+# percents for next CEO of Nvidia Market ... the contest runs for 12 hours. And then ... probably for 48 hours or until
+# the CEO is actually selected ... we basically test all their bots to see which one is able to track it most accurately
+# over time. And the reward can be $250 bounty total, but we spread it across like at least 100 entrants." The root
+# planner's design contract (#2) as its amendment A1 and the rulings after research #3 amend it.
+#
+# The universe (collector/polymarket-forecast/market.ts universeOf, frozen in universe.json): the event's markets that
+# are active, not closed, accepting orders and have traded (volume > 0), in gamma's market order, each its conditionId,
+# its name (groupItemTitle), its slug and its Yes token (clobTokenIds[0]); 24 markets, snapshot
+# 2026-11-13T06:20:49.060Z (`node collector/polymarket-forecast/cli.ts universe --out
+# competitions/polymarket-nvidia-ceo-forecast-01/universe.json`). A market Polymarket adds later is not in it. The
+# event's other 83 markets are inactive placeholders ("Candidate S" and the like, and "Other").
+#
+# The prices (grid.ts): each universe market's Yes price from Polymarket's public price history (CLOB /prices-history,
+# fidelity 1 minute, about one point a minute, the order book's midpoint), on a 1-minute UTC grid: minute m's price is
+# the last point with t <= m, forward-filled; a market's grid starts at the first whole minute at or after its first
+# point; values as Polymarket gives them.
+#
+# The cases (freeze.ts): a checkpoint every 4 hours from W0, the deadline: the final's h00..h11 at W0 + 4k h, k = 0..11,
+# each forecasting the 240 minutes c_k+1 .. c_k+240, so every minute of the 48-hour window is forecast once. A case holds
+# the universe markets that had a price point at or before its checkpoint (all 24 in the final), each with its last 72
+# hours (4,320 minutes) of grid ending at the checkpoint, or from its grid's start when that is later: nothing after it.
+# The answer (reference/answer.json, makefun/polymarket-answer/v1) holds each case's markets and their actual grid prices
+# at each scored minute. The window's real end E = min(W0 + 48 h, R), R the first minute the house recorder sees the
+# event stop trading (market.ts stopSignalOf: a universe market's Yes proposed, reproposed or resolved as winning at
+# price 1 on data-api /v2/resolutions, or a Yes token marked winner on the CLOB, or every universe market closed; a stop
+# seen late takes the decision's own time on the resolutions row, floored to the minute, when it is after the last poll
+# that read no stop, never before W0: record.ts stopMinuteOf); only minutes <= E are scored, a case with none is
+# dropped, and with none at all there is no answer, no grade and no prize. answer.window is the nominal {deadline, until} (server/admin/dataset-register.ts
+# polymarketFamily holds it to the deadline and the final phase's start), and answer.recorded {end, ended_by} is where
+# the recording really stopped.
+#
+# Format: program/v1, `cases: per-file` beside `final_dataset: true` (contracts/competition.ts, #13): each case run
+# alone in a sandbox of its own, /input holding only <id>.in, its /output/<id>.out kept only when that run ended ok
+# (grader/program.ts executePerCase), each under its manifest time_cap_ms (8,000). The final grades on a dataset the
+# house recorder (deploy/k8s/components/polymarket-nvidia-ceo-forecast, `collector/polymarket-forecast/cli.ts record
+# --w0 <deadline> --hours 48 --freeze-out /opt/make.fun/data/datasets/polymarket-nvidia-ceo-forecast-01-final`) records
+# from W0 and freezes at E once every market was fetched from E + 5 minutes on (or at E + 2 hours with what it holds);
+# the automation's lock step registers that freeze sealed and attaches it to the final phase
+# (server/competitions/lifecycle/auto.ts frozenFinalStage, the window held by the Polymarket family). The dev phase
+# grades on this directory's own sealed practice instance (input/, reference/), cut by `node
+# collector/polymarket-forecast/cli.ts practice --from 2026-11-12T06:00:00Z --universe
+# competitions/polymarket-nvidia-ceo-forecast-01/universe.json --out competitions/polymarket-nvidia-ceo-forecast-01`
+# from Polymarket's history: p00..p05 every 4 hours from 2026-11-12T06:00:00Z, answered through 2026-11-13T06:00:00Z,
+# p00 to p02 holding 19 markets, p03 23 and p04 and p05 all 24 (the markets started at different times: six on
+# 2026-11-10, the rest from 2026-11-11T22:57Z to 2026-11-12T18:11Z).
+#
+# Scoring (scorer/score.ts, node22 stdlib): every (case, market, scored minute, level tau) is one item, its pinball loss
+# 100 * max(tau * (y - q), (tau - 1) * (y - q)) in percentage points; loss is the mean over every item (6 decimals,
+# lower better, the rank); an invalid case is scored as if every quantile were 0.5, and makes valid 0, the gate, so the
+# entry ranks below every valid one and takes no prize. median_error and coverage_90 are information; run_ms (the
+# grader's run.json wall_ms, the run time per execution over every case) breaks an exact tie, faster first, then the
+# earlier receipt (.cosmos/rules/contest-design.mdc). The house baseline (baseline/main.ts, the kit's starter/ byte for
+# byte) is persistence: q = clamp(x + z * 0.0025 * sqrt(h), 0, 1) to 6 decimals from each market's last price x, its
+# numbers fixed in advance; on the practice it scores loss 0.363589 (median_error 0.767503, coverage_90 0.949642).
+#
+# The prize gate (prize_requires_beating_baseline): a prize needs a loss strictly below the best of the phase's ranked
+# baseline entries: the persistence baseline (house.yaml, entered by the automation 4 hours before the deadline, T0+8h)
+# and the house model one-shot (grader/house-forecast.ts's per-file Polymarket kind, entered by
+# scripts/competitions/house-forecast.ts `--slug polymarket-nvidia-ceo-forecast-01 --phase dev|final --model superbot
+# --reasoning-effort max`): superbot at reasoning effort max (.cosmos/rules/house-models.mdc, 64,000 output tokens), one
+# recorded call per phase (asked once more, the same prompt, only if its first answer is not a valid forecast:
+# HOUSE_FORECAST_ATTEMPTS 2) on the history to its cut (practice: p00's, to 2026-11-12T06:00:00Z; final: deadline - 1 h),
+# answering each market's sigma and drift, replayed per case by grader/house-forecast-entry-cases with no model call:
+# q = clamp(x + drift * h / 60 + z * sigma * sqrt(h), 0, 1). Both are flagged baseline; the rules name the model.
+#
+# Prizes: $250 over 100 places, $40 / $25 / $15 / $5 x7 / $1.50 x90 (tests/unit/catalogue.test.ts HUNDRED_250_TABLE,
+# the owner's "$250 ... spread across like at least 100 entrants"), each place written out as the catalogue's tables
+# list it. Full automation (lifecycle true, payouts auto), its escrow funded at open (automation.escrow: at_open;
+# server/competitions/load.ts escrowAtOpenIssues: placement prizes, lifecycle true, a final phase with an end, starting
+# 48 hours after the deadline, far past the commit window): the rules' Entries and Payout and the criteria's and
+# announcement's payout lines say both outcomes in the btc-race release template's words
+# (server/releases/templates/btc-race.ts), as pumpfun-top5-forecast-01's do. No challenge window is named. The board
+# copy (title, summary, demand) stays off tests/unit/support/public-copy.ts OFF_BOARD words and names no profit, bet,
+# wager or odds.
+#
+# Dates (set at finalize, T0 the next whole UTC hour at least 90 minutes after the bundle was sealed; every one derives
+# from T0 = opens_at). The universe was snapshotted again at finalize and was the same 24 markets, so the practice was
+# not re-cut and the snapshot instant below is the first one's:
+#   T0        2026-11-13T09:00:00Z   opens_at, the dev phase's start
+#   T0+8h     2026-11-13T17:00:00Z   the house baseline entered (house-entry-due.ts: deadline - 4 h)
+#   T0+11h    2026-11-13T20:00:00Z   the house model forecast's final cut (deadline - 1 h)
+#   T0+12h    2026-11-13T21:00:00Z   the deadline = W0 = h00; the dev phase's end
+#   T0+12h+4k h                      h00..h11, the last h11 at 2026-11-15T17:00:00Z (T0+56h)
+#   T0+60h    2026-11-15T21:00:00Z   W0 + 48 h: the window's planned end (until), the final phase's start
+#   T0+66h    2026-11-16T03:00:00Z   the final phase's end
+# The practice's dates (2026-11-12T06:00:00Z to 2026-11-13T06:00:00Z) are the sealed instance's, not T0's.
+#
+# Grading budget (server/competitions/grading-budget.ts at 2,000 entries, tests/unit/grading-budget-bundles.test.ts):
+# each case is a pod of its own, which the module does not see (it prices a non-pack program grade as 2 x wall / 3 + a
+# 40 s pod), so limits.wall_budget_sec states the final's per-case cost: 12 cases x (8 s cap + about 10 s pod start) =
+# 216 s. The module prices that at a 184 s grade (worst 472 s): the final 2.13 hours expected, 5.46 worst, on 48
+# lanes; dev 0.177 lane-days a day. The honest per-case model (research #5: grade = 2 x N x (run + 9-10 s pod) + 40 s +
+# about 15 s scorer), at a 10 s pod start: 12 final cases at a 2 s run are about 343 s a grade, 3.97 hours for 2,000
+# entries on 48 lanes, 2.98 on 64; at the 8 s cap 487 s, 5.64 and 4.23 hours (inside the 12-hour worst); the dev's 6
+# cases at a 2 s run about 199 s a grade. The starter runs a practice case in well under a second.
+version: 1
+
+competition:
+  slug: polymarket-nvidia-ceo-forecast-01
+  title: Forecast Polymarket's next NVIDIA CEO prices minute by minute, 4 hours ahead
+  summary: "Write a program that reads the minute-by-minute Yes prices of the 24 trading markets of Polymarket's \"Next CEO of NVIDIA?\" event and, at each of twelve checkpoints 4 hours apart over the 48 hours from 2026-11-13 21:00 UTC, forecasts each market's price at every minute of the next 4 hours as five quantiles, for the lowest mean pinball loss: 1st place is the best forecast, and a forecast must also beat our house forecasts to take any place, so one that beats them but ranks below 100th wins nothing; the lowest loss wins $40, 2nd place $25, 3rd place $15, 4th to 10th place $5 each and 11th to 100th place $1.50 each."
+  demand: Researchers, analysts and market makers who want a calibrated short-horizon forecaster of prediction-market prices, one that says not only where a market's price is heading over the next hours but how far it may move.
+  category: Forecasting
+  skills: [Forecasting, Time series, Statistics, Prediction markets, TypeScript, Python]
+  status: open
+  visibility: public
+  sponsor: make-fun
+  reward_usd: 250
+  opens_at: "2026-11-13T09:00:00Z"
+  deadline: "2026-11-13T21:00:00Z"
+  description: |-
+    Polymarket's "Next CEO of NVIDIA?" event lists a market for each person who may succeed Jensen Huang, each one's Yes price the crowd's chance, from 0 to 1, that they will. Those prices move all day, sometimes by a few tenths of a cent, sometimes by twenty points in a minute. We want a forecaster that says, honestly, where each of them will be over the next hours and how far it may move.
+
+    ## Context
+    Your entry is a program that reads one case at a time: every trading market of the event, each with its Yes price at every minute of the 72 hours up to a checkpoint, and writes, for each market and each of the 240 minutes after the checkpoint, five quantiles of that minute's price (5%, 25%, 50%, 75% and 95%). It runs offline in the sandbox, with no network: everything it knows is in the case it is given, and nothing calls a model.
+
+    Entries are open for 12 hours, from 2026-11-13 09:00 UTC to the deadline, 2026-11-13 21:00 UTC. Before the deadline every entry is scored on a practice of six cases cut from the event's history, 4 hours apart from 2026-11-12 06:00 UTC, and its score shows as it lands. In the final every entry runs on twelve cases the house records after the deadline, at 2026-11-13 21:00 UTC and every 4 hours after it to 2026-11-15 17:00 UTC, each case holding only the prices up to its checkpoint, so it is scored on 48 hours of prices nobody had seen when entries closed. If Polymarket decides the market first (the next CEO is named), the window ends at the minute it is seen, and only the minutes up to that minute are scored. The practice is graded on past prices anyone can fetch from Polymarket and pays nothing, so a practice score is no guide to the final.
+
+    The score is the pinball loss, in percentage points: for each quantile, how far the price fell on the wrong side of it, weighted by the level, averaged over every market, minute and quantile of every case, so a sharp forecast that is right scores near 0 and a wide or wrong one higher. Ties are broken by the faster program. A prize needs a lower loss than the best house entry: the house baseline, which says each price stays where it was with a spread that widens over time, and a forecast by a house AI model. Once the house's recording is frozen and attached, everything runs by itself, with no further admin step unless a check holds it, and each winner claims the prize in USDC on Solana: from make.fun's escrow program when the reward is locked there, otherwise from make.fun's reward wallet, as this bounty's page says.
+
+    ## Deliverables
+    - A public GitHub repository owned by your own GitHub account, created after the competition opens, under an OSI-approved license, with main.ts (Node 22) or main.py (Python 3.13) in the repository root that writes /output/<id>.out for the case /input/<id>.in it is given
+    - The AI coding-agent transcripts of the sessions that built it (Claude Code, Codex, Cursor and others), uploaded with each submission
+
+    ## Requirements
+    - Standard library plus source you vendor into the repository: nothing is installed before the program runs, and it has no network
+    - Read the case in /input; two runs on the same case must write the same forecast
+    - At most 8 seconds, 1 CPU and 1024 MB per case
+    - At most 10 submissions a day and 10 in all; your last submission before the deadline is your final entry
+  rules: |-
+    ## The task
+    Forecast the Yes price of every trading market of Polymarket's event "Next CEO of NVIDIA?" (https://polymarket.com/event/next-ceo-of-nvidia, slug next-ceo-of-nvidia) at every minute of the 4 hours after each checkpoint. The final has twelve checkpoints, 4 hours apart, from the deadline, 2026-11-13T21:00:00Z, to 2026-11-15T17:00:00Z, so its cases together cover every minute of the 48 hours from the deadline to 2026-11-15T21:00:00Z. Your program, `node /bot/main.ts` (Node 22) or `python3 /bot/main.py` (Python 3.13) at the root of your repository, is run once per case: it reads that case's file at /input, the prices up to its checkpoint, and writes one forecast file to /output: for each market and each of the 240 minutes after the checkpoint, five quantiles of that minute's price. It runs in a sandbox with no network, so it cannot read Polymarket: it forecasts. Your score is the mean pinball loss over every case, market, minute and quantile (Scoring).
+
+    ## The market and its prices
+    - The event resolves on the first successor to Jensen Huang that NVIDIA announces, or to "Jensen Huang (No Change)" if none is announced by the end of 2028, as Polymarket's own rules for the event say. Each of its markets is one outcome, and its Yes price, from 0 to 1, is the crowd's chance of that outcome.
+    - The universe is the event's 24 markets that were trading when the contest's universe was frozen, 2026-11-13T06:20:49Z: active, not closed, accepting orders and traded at least once, in Polymarket's own order. Each is named by its conditionId (`id`), its name, its slug and its Yes token. A market Polymarket adds later is not in it; the event's other markets (placeholders such as "Candidate S" and "Other") never traded and are not in it either.
+    - A market's price is its Yes token's price as Polymarket's public price history gives it, GET https://clob.polymarket.com/prices-history?market=<yes token>&startTs=<s>&endTs=<s>&fidelity=1: about one point a minute, each the midpoint of the Yes order book (0.295 on a book quoting 0.29 and 0.30), unrounded. The house puts it on a 1-minute UTC grid: the price at minute m (its first second) is the last point at or before m, carried forward through minutes with no point of their own. A market's grid starts at the first whole minute at or after its first point. Every price you are given, and every price you are scored against, is on that grid.
+    - Prices move in steps: often not at all for minutes, then a tick, and now and then a jump. In the practice, Colette Kress went from 0.3535 to 0.59 in the minute to 2026-11-12T13:51:00Z and back to 0.4585 the next.
+
+    ## The cases
+    - A case is a checkpoint `at` and the 240 minutes after it, at+1 to at+240. The final's twelve cases are h00 to h11, h00 at the deadline, 2026-11-13T21:00:00Z, and each next one 4 hours later, h11 at 2026-11-15T17:00:00Z. The house records the prices while they happen, so no one, the house included, has a case's answer before the case's minutes have passed.
+    - A case holds every universe market that had a price by its checkpoint (in the final, all 24), each with its prices from the 72 hours up to and including the checkpoint (4,320 minutes), or from its grid's first minute when that is later. Nothing after the checkpoint is in it: a case is causal, and each run sees its own case only.
+    - The practice is the same shape over the event's history: six cases, p00 to p05, 4 hours apart from 2026-11-12T06:00:00Z to 2026-11-13T02:00:00Z, answered through 2026-11-13T06:00:00Z. The markets started at different times, so p00, p01 and p02 hold 19 markets, p03 holds 23 and p04 and p05 all 24; a case lists the markets it scores.
+
+    ## Your input
+    - /input/<id>.in, the one case your run is given (h00, say, or p03): UTF-8 JSON, keys sorted, no whitespace, one object: `schema` ("makefun/polymarket-case/v1"), `competition`, `case` (its id), `at` (its checkpoint, ISO 8601 UTC with milliseconds, a whole minute), `horizon_minutes` (240), `quantiles` ([0.05,0.25,0.5,0.75,0.95]), `event` (`slug` and `title`) and `markets`: a list in the universe's order, each `id` (its conditionId), `name`, `slug`, `yes_token`, `start` (the minute of the first price in its `prices`, ISO 8601 UTC with milliseconds) and `prices`, one number per minute from `start` to `at` inclusive, so its last is the price at the checkpoint.
+    - For example `{"at":"2026-11-13T21:00:00.000Z","case":"h00","competition":"polymarket-nvidia-ceo-forecast-01","event":{"slug":"next-ceo-of-nvidia","title":"Next CEO of NVIDIA?"},"horizon_minutes":240,"markets":[{"id":"0xd940…","name":"Ian Buck","prices":[0.29,0.295,0.295],"slug":"…","start":"2026-11-13T20:58:00.000Z","yes_token":"…"}],"quantiles":[0.05,0.25,0.5,0.75,0.95],"schema":"makefun/polymarket-case/v1"}` holds one market with three minutes of prices, 0.295 at the checkpoint (a real case holds 72 hours of them).
+    - /input/NOTICE.txt is beside the cases in the kit's input/: where the prices come from and how to fetch them again. Your program is run with only its case's file there, so read every `*.in` file you find, in name order, and write one output for each.
+    - Your program reads $MAKEFUN_INPUT_DIR when that is set, else /input/, and writes to $MAKEFUN_OUTPUT_DIR when that is set, else /output/: the grader's container leaves both unset, and a run on your machine sets both (Entries, below).
+
+    ## Your forecast
+    - /output/<id>.out for the case /input/<id>.in, a regular file (not a link) of at most 1,048,576 bytes of UTF-8 JSON: one object with exactly one key, `forecasts`, a list with exactly one row for each market of the case and no other, each exactly `{"id": <the market's id>, "q": <rows>}`, the markets in any order. `q` is exactly 240 rows (the case's horizon_minutes), row h-1 the forecast for minute at+h, and each row is exactly five numbers, the quantiles at the levels 0.05, 0.25, 0.5, 0.75 and 0.95 in that order: each a finite number from 0 to 1, each at least the one before it (equal is fine).
+    - For example `{"forecasts":[{"id":"0xd940…","q":[[0.290888,0.293314,0.295,0.296686,0.299112],[0.289185,0.292615,0.295,0.297385,0.300815], …]}]}` with 240 rows, the house baseline's forecast for a market at 0.295.
+    - A case whose output is missing, too large, not JSON or not of this shape, names a market the case does not hold or leaves one out, or whose run crashed or ran over its 8 seconds, is an invalid case: it is scored as if every quantile of every row were 0.5, and an entry with any invalid case ranks below every entry whose cases are all valid and takes no prize.
+
+    ## Scoring
+    - Every case, each of its markets, each scored minute and each of the five levels tau is one item. Its pinball loss, in percentage points, is 100 x max(tau x (y - q), (tau - 1) x (y - q)), where y is the market's actual price on the grid at that minute and q your quantile at tau for it: a quantile below the price costs tau per point it is short, one above it 1 - tau per point it is over, so the 5% quantile should sit where the price is below it one minute in twenty.
+    - Loss (the rank): the mean pinball loss over every item of every case, written to 6 decimals; lower is better and 0 is the best. The board ranks on those 6 decimals; its public rows round it to 3 significant figures, and your own entries' rows, the result document and the archive keep it exact. Every rank, tie and prize is decided on the exact value.
+    - The board also shows the median error (the mean over every scored market-minute of 100 x |y - your median|), the 90% coverage (the share of scored market-minutes with your 5% quantile at or below the price and your 95% quantile at or above it; an honest forecast covers about 0.9) and valid (1 when every case is valid, else 0). They are information: only the loss ranks.
+    - A worked example: say a case scores one market for two minutes and the forecast's rows for them are both [0.27, 0.29, 0.30, 0.31, 0.33]. At the first minute the price is 0.30: the items cost 0.15, 0.25, 0, 0.25 and 0.15 points. At the second it jumped to 0.35, above every quantile: 0.4, 1.5, 2.5, 3 and 1.9 points. The loss is the mean of the ten, 1.01; the median error (0 + 5) / 2 = 2.5; the 90% coverage 0.5 (the first minute only). Had that case been invalid, every quantile 0.5, its ten items would cost 19, 15, 10, 5, 1 and 14.25, 11.25, 7.5, 3.75, 0.75 points: a loss of 8.75.
+    - Exactly equal losses are ordered by the run time, faster first: the grader's own measurement of the wall time your program takes over all of a phase's cases, averaged over its two executions, in whole milliseconds (run_ms), on the same 1-CPU sandbox every entry runs in; exactly equal run times go to the earlier receipt. It only breaks an exact tie and is never part of the loss.
+    - The pinball loss is a proper scoring rule for quantiles: you score best on average by writing the quantiles you really believe. A forecast that is too narrow pays for every jump outside it, one too wide pays at every quiet minute, and one whose median sits where the price is not pays at both.
+
+    ## The answer and the window
+    - The answer is the prices the house recorder records: it fetches every universe market's price history every minute, from before the deadline, and the window it records starts at 2026-11-13T21:00:00Z; the actual price of each case's minutes is the grid price as Polymarket's history gives it, recorded while Polymarket serves it.
+    - The window is planned to end at 2026-11-15T21:00:00Z, 48 hours after the deadline. It ends earlier if the market is decided: once the recorder sees that the event has stopped trading, the window ends at that minute, R, and only the minutes up to it are scored. The recorder polls the event every minute, and it has stopped trading once a universe market's Yes is proposed, reproposed or resolved as the winner at price 1 on Polymarket's resolutions (GET https://data-api.polymarket.com/v2/resolutions?event_id=1353337), or marked winner on the order book's market (GET https://clob.polymarket.com/markets/<conditionId>), or once every universe market is closed. When the recorder sees the stop late (it was down, or a poll failed), R is the decision's own time on that resolutions record, floored to the minute, when that is later than its last poll that read the event still trading, and never before the deadline. One candidate resolved No does not stop it: that market's price simply stays at its last real tick.
+    - A case whose checkpoint is at or after R scores nothing and is left out; a case cut short by R is scored on the minutes up to R alone. The recorder freezes the window into the final dataset once every market's history has been fetched again from 5 minutes after the window's end (or, 2 hours after it, with what it holds), and the dataset is attached to the final phase and published with the results: every case every entry read and every actual price, so anyone can score every final entry again on the same prices (Polymarket may stop serving its 1-minute history for an old window, which is why the house records it).
+    - If Polymarket decides the market before the deadline, or at it, there is no case to score: there is no answer, the final is not graded and no prize is paid (Payout).
+    - Before the deadline the practice cases are scored the same way against the event's own history to 2026-11-13T06:00:00Z. The practice is graded on past prices anyone can fetch from Polymarket and pays nothing, so a practice score is no guide to the final.
+
+    ## Baseline and prizes
+    - The house baseline (starter/main.ts in the kit) says each market's price stays where it was, with a spread that widens like a random walk's: for minute h = 1 to 240 after the checkpoint, q_tau = x + z_tau x 0.0025 x sqrt(h), clamped to [0, 1] and rounded to 6 decimals, where x is the market's price at the checkpoint and z_tau the standard normal's quantile at each level (-1.644854, -0.674490, 0, 0.674490, 1.644854). For a market at 0.295 its rows run from [0.290888, 0.293314, 0.295, 0.296686, 0.299112] at the first minute to [0.231295, 0.268877, 0.295, 0.321123, 0.358705] at the 240th. Its numbers were fixed in advance, never tuned on the practice. It scores a loss of 0.363589 on the practice (median error 0.767503, 90% coverage 0.949642, every case valid); the kit's starter, the same program, scores the same. It is graded on the final like every entry.
+    - The house model forecast: the house also enters the forecast of an AI model (superbot, at reasoning effort max, with a 64,000-token output budget), made by one recorded call the house pays for (asked once more, the same prompt, only if its first answer is not a valid forecast), given these rules, the forecast's format and, for each market, its last price, its 48 hourly closes and its last 120 one-minute prices up to the history's cut. It answers, for each market, a sigma (the spread of its moves, 0 to 0.05 in price units per square-root minute) and a drift (its expected move, -0.2 to 0.2 in price units per hour). Its answer is recorded, and every grading replays it with no new call: for each case, from each market's price x at the checkpoint, q_tau = x + drift x h / 60 + z_tau x sigma x sqrt(h), clamped to [0, 1] and rounded to 6 decimals; a market its answer does not name takes the baseline's 0.0025 and 0 (in the practice, the 5 markets that p00's history does not hold: all of them in p00 to p02, and Curtis Priem as well in p03). It is made once for the practice, on p00's history to 2026-11-12T06:00:00Z, and once for the final, on the 72 hours of history to 2026-11-13T20:00:00Z, an hour before the deadline; the same answer is applied to every case of its phase.
+    - A hundred places pay $250 in USDC: $40 for 1st place, $25 for 2nd, $15 for 3rd, $5 each for 4th to 10th and $1.50 each for 11th to 100th, one place per entrant. Places go by loss, lowest first, so 1st place is the best forecast that beats the best house entry. Beating the best house entry makes a forecast eligible, not a winner: when more than a hundred forecasts beat it, only the hundred with the lowest losses take places. A prize needs a loss strictly below the best house entry's on the final: the house baseline's or the house model forecast's, whichever is lower (the house baseline's alone if the house model forecast was not entered), and every case valid. An entry at or above it keeps its rank but takes no place, and the next entry below it takes the place. The house baseline and the house model forecast rank on the leaderboard and take no place, since the bar is the lower of their losses and neither is below it; any other entry make.fun enters itself ranks like any other entry and must beat them too. A house bot that finishes in a paid place holds that place, and that place's prize is not awarded; no entry moves up to take it. A place no entry is left to take is not awarded. Exactly equal losses go to the faster program, then the earlier receipt.
+
+    ## Entries
+    - Node 22 (node /bot/main.ts) or Python 3.13 (python3 /bot/main.py): one of the two at the repository's root, not both. Source and the standard library only, nothing installed, no network.
+    - Your program is run once per case, each run in a sandbox of its own with only that case's file in /input: at most 8 seconds, 1 CPU, 1024 MB and 64 processes per run. /bot, your repository, is read-only; /output is where your forecast goes. Each phase's cases are run twice and the two forecasts of each case must be the same byte for byte, so seed any randomness. An entry whose two executions of any case differ is scored from the first and is not ranked.
+    - A practice grade runs your program twelve times (six cases, twice each), each run starting a sandbox of its own: about 2 seconds a start when few entries are being graded, 8 to 11 seconds at full load (up to 20 at the 90th percentile), so on production a practice grade takes about 2 minutes from receipt to score when quiet and about 3 to 4 minutes at full load, plus about 10 seconds.
+    - The kit's starter/ is the house baseline laid out as an entry, with an MIT LICENSE: run it locally on the practice with `mkdir -p out && MAKEFUN_INPUT_DIR=input MAKEFUN_OUTPUT_DIR=out node starter/main.ts` from the kit's directory.
+    - Entries are taken for 12 hours, from the opening at 2026-11-13T09:00:00Z to the deadline at 2026-11-13T21:00:00Z. At most 10 submissions a day and 10 in all; your last submission before the deadline is your final entry. Every entry needs the transcripts of the agent sessions that built it.
+    - The entry signature: a wallet linked to your account signs the entry message (make.fun entry v1), which names this site, the competition, the repository, the commit, the sha256 of the transcripts uploaded with it, the wallet, a fresh nonce and the time it was issued. A signed message is good for 10 minutes and enters one submission only. When the reward is locked in make.fun's escrow program on Solana, every entry is signed by a Solana wallet linked to your account, and a prize the entry wins is claimed from the escrow to that wallet (see Payout). Otherwise the reward is paid from make.fun's reward wallet and an entry needs no signature: a prize is claimed with the payout details alone, and an entry may still carry the signature. This bounty's page says which.
+    - Your repository is public on GitHub from the moment you create it, so anyone can read your code and see which GitHub account owns it before the results are published, even while this site hides it from other entrants.
+
+    ## Payout
+    The final leaderboard is published within 7 days of the deadline, unless a check holds it: the results come once the 48-hour window has been recorded (or has ended early on the market's decision) and graded. Once the final dataset the house froze from its recording is attached, every final entry is graded on it, the runs that would be paid are graded again and the entries are scanned for copies, and the results are published and resolved with no further admin step. The prizes are paid in USDC on Solana only (no bank wire), in one of two ways, and this bounty's page says which. When the bounty opens, its whole reward is locked in make.fun's escrow program on Solana if the escrow can be funded. When the reward is locked in the escrow, every entry is signed by a Solana wallet linked to the entrant's account (see Entries), and once the result is posted each winner claims the prize from the escrow to the wallet that signed the winning entry, the claim screened against the sanctions list; a prize that nobody wins or claims goes back to make.fun's reward wallet after the escrow's claim window.
+
+    Otherwise the reward is paid from make.fun's reward wallet as follows, and an entry needs no signature. Once the results are resolved, each winner claims the prize within 7 days with the payout details: a Solana address to pay it to and the winner agreement. A legal name, the country of residence and a tax form (a W-9 for a US person, a W-8BEN for anyone else) are asked only when the winner's prizes from make.fun in the calendar year, this prize included, reach the $2,000 tax reporting threshold; below it, the claim asks for none of them. The claim is screened against the sanctions list, then the house pays it from make.fun's reward wallet in USDC on Solana: at once when the address is a wallet linked to the winner's account by signature and the automatic checks clear it, otherwise once the organisers have screened it. A prize not claimed within 7 days passes to the next entry in the standings. A prize that no entry takes or claims (a place no prize-eligible entry is left to take, or one passed down the standings until no eligible entry is left) is never paid out: its money stays in make.fun's reward wallet for later contests.
+
+    If there is no answer (The answer and the window), no result is posted and no prize is paid, whichever way the reward was to be paid: a reward locked in the escrow goes back to make.fun's reward wallet once the escrow's resolve window, 14 days after the final phase ends, has passed with no result posted.
+
+    Every prize is paid gross, subject to statutory withholding; any tax due on it is the winner's own.
+
+    Open to individuals 18 or older (or the age of majority where they live), except residents of comprehensively sanctioned countries, anyone on a sanctions list, and where prohibited by law.
+  resolution:
+    method: automated
+    summary: "Every final entry forecasts, at each of twelve checkpoints 4 hours apart from 2026-11-13T21:00:00Z to 2026-11-15T17:00:00Z, the Yes price of each of the 24 markets of Polymarket's event next-ceo-of-nvidia at every minute of the next 240, as five quantiles, from the prices up to the checkpoint, and ranks by its mean pinball loss over every scored case, market, minute and quantile, lowest first: 1st place goes to the best forecast. Beating the best house entry only qualifies a forecast; the 100 lowest-loss forecasts that beat it take the 100 places, one per entrant, an entry that beats the house but ranks below 100th wins nothing, and a paid place a house bot holds is not awarded. The lowest loss wins $40, a hundred places paying $250 in all."
+    criteria:
+      - "Harness: program/v1, run once per case; the entry runs offline on each case's /input/<id>.in alone and writes /output/<id>.out, each case twice with the outputs compared, at most 8 seconds a run, and the sealed scorer scores every case against the recorded prices"
+      - "Markets: the 24 markets of Polymarket's event next-ceo-of-nvidia trading when the universe was frozen, each its Yes price from Polymarket's public price history (CLOB prices-history, 1-minute fidelity, the order book's midpoint) on a 1-minute UTC grid, each minute the last point at or before it"
+      - "Cases: twelve checkpoints 4 hours apart from 2026-11-13T21:00:00Z, each forecasting the 240 minutes after it from the 72 hours of prices up to it; the window ends at 2026-11-15T21:00:00Z, or earlier at the minute the house recorder sees the event stop trading (a Yes proposed or resolved as the winner, or every market closed), only minutes up to its end scored; with no case left there is no answer and no prize"
+      - "Rank: the mean pinball loss, 100 x max(tau x (y - q), (tau - 1) x (y - q)) percentage points, over every case, market, scored minute and level 0.05, 0.25, 0.5, 0.75 and 0.95, to 6 decimals, lowest first; an invalid case is scored as all quantiles 0.5 and takes the entry out of the prizes; ties by the faster run time (run_ms), then the earlier receipt"
+      - "Prizes: $40 for 1st place, $25 for 2nd, $15 for 3rd, $5 each for 4th to 10th and $1.50 each for 11th to 100th, one place per entrant, in USDC on Solana; a paid place a house bot holds is not awarded, and no entry moves up to take it"
+      - "Beat the house: a prize needs a loss strictly below the best house entry's on the final, the house persistence baseline's or the house model forecast's; an entry that does not beat it keeps its rank and takes no place, and a place no entry is left to take is not awarded"
+      - "Payout: in USDC on Solana only, and the bounty's page says which way: when the reward is locked in make.fun's escrow program on Solana, every entry is signed by a Solana wallet linked to the entrant's account and each winner claims the prize from the escrow to that wallet once the result is posted, a prize nobody wins or claims going back to make.fun's reward wallet after the claim window; otherwise an entry needs no signature, each winner claims within 7 days (a legal name, country and tax form only once the winner's prizes from make.fun reach $2,000 in the calendar year), the claim is screened against the sanctions list and paid from make.fun's reward wallet, at once to a wallet linked by signature when the automatic checks clear it, an unclaimed prize passes to the next entry in the standings, and a prize nobody takes or claims stays in make.fun's reward wallet for later contests"
+      - "Reproducible: the final dataset (every case's input and every actual price) is published with the results, so anyone can run and score every final entry again on the same prices"
+    source: Polymarket's public price history of the Yes token of each market of the event next-ceo-of-nvidia, recorded every minute by the house recorder, whose window starts at the deadline
+    verifier: make.fun grader runs every final entry twice on each case of the frozen final dataset and scores it with the sealed scorer; the results are published and resolved automatically once the final grades, the regrades of the would-be winners and the scan for copies are done
+    tie_break: Equal losses go to the faster program (the lower run time, run_ms), then to the earlier receipt
+    announce: Final leaderboard within 7 days of the deadline unless a check holds it, once the 48-hour window is recorded and graded; in USDC on Solana, winners claim from make.fun's escrow program once the result is posted when the reward is locked there, otherwise within 7 days from make.fun's reward wallet
+    metric:
+      name: Pinball loss
+      unit: percentage points
+      better: lower
+
+harness:
+  kind: program/v1
+  runtimes: [node22, python3.13]
+  input_data: input
+  cases: per-file
+  scorer:
+    runtime: node22
+    entrypoint: scorer/score.ts
+    reference_data: reference
+  scorer_sha256: 003af5496e743b0af82c6dedbfca9652b51eda2ec7fbb319f4ebb00918ad0caa
+  input_sha256: d5f2f4dd2db62349d991e2d191433c2c082cbffaf24cdb8037a4903b32cb7bfe
+  reference_sha256: 0c3a9d0e9baabf675c081a1bffb3013946bc5adc56cd930bac61732de5b888e5
+  gate: valid
+  final_dataset: true
+
+phases:
+  - key: dev
+    title: Practice forecast
+    description: Every entry forecasts the six practice cases, 4 hours apart from 2026-11-12T06:00:00Z to 2026-11-13T02:00:00Z, each from the event's prices up to its checkpoint, and is scored on the 240 minutes after each, through 2026-11-13T06:00:00Z; its score shows as it lands.
+    starts_at: "2026-11-13T09:00:00Z"
+    ends_at: "2026-11-13T21:00:00Z"
+    scores: live
+  - key: final
+    title: The 48 hours after the deadline
+    description: Every final entry forecasts the twelve cases the house recorded, 4 hours apart from 2026-11-13T21:00:00Z to 2026-11-15T17:00:00Z, each from the prices up to its checkpoint, and is scored on the minutes after each to 2026-11-15T21:00:00Z, or to the minute the market stopped trading; scores appear with the results.
+    starts_at: "2026-11-15T21:00:00Z"
+    ends_at: "2026-11-16T03:00:00Z"
+    scores: after_finalize
+
+# The loss ranks (6 decimals, public rows to 3 significant figures: the catalogue rounds every paid rank column,
+# tests/unit/catalogue.test.ts; the rules say so); median_error and coverage_90 are information; valid is the gate
+# (harness.gate): an entry with an invalid case ranks below every valid one; run_ms, the grader's run time per
+# execution over every case (/scores/run.json wall_ms, which the scorer copies), breaks an exact tie (tie_break_index).
+leaderboard:
+  title: Results
+  primary_index: 0
+  tie_break_index: 4
+  columns:
+    - {key: loss, title: "Pinball loss (points)", index: 0, sorting: asc, precision: 6, significant_figures: 3}
+    - {key: median_error, title: "Median error (points)", index: 1, sorting: asc, precision: 4}
+    - {key: coverage_90, title: "90% coverage (nominal 0.9)", index: 2, sorting: desc, precision: 4}
+    - {key: valid, title: Every case valid, index: 3, sorting: desc, precision: 0}
+    - {key: run_ms, title: "Program run time (ms)", index: 4, sorting: asc, precision: 0}
+
+submission_rule:
+  rule: Force_Last
+  max_per_day: 10
+  max_total: 10
+  transcripts_required: true
+  strategy_note_required: false
+  license: osi
+  repo_created_after_open: true
+  house_only: false
+
+# One row per place, as the catalogue's tables list them (tests/unit/catalogue.test.ts prizesOf): $250 over 100 places.
+prizes:
+  - {kind: placement, place: 1, amount_usd: 40, title: 1st place}
+  - {kind: placement, place: 2, amount_usd: 25, title: 2nd place}
+  - {kind: placement, place: 3, amount_usd: 15, title: 3rd place}
+  - {kind: placement, place: 4, amount_usd: 5, title: 4th place}
+  - {kind: placement, place: 5, amount_usd: 5, title: 5th place}
+  - {kind: placement, place: 6, amount_usd: 5, title: 6th place}
+  - {kind: placement, place: 7, amount_usd: 5, title: 7th place}
+  - {kind: placement, place: 8, amount_usd: 5, title: 8th place}
+  - {kind: placement, place: 9, amount_usd: 5, title: 9th place}
+  - {kind: placement, place: 10, amount_usd: 5, title: 10th place}
+  - {kind: placement, place: 11, amount_usd: 1.5, title: 11th place}
+  - {kind: placement, place: 12, amount_usd: 1.5, title: 12th place}
+  - {kind: placement, place: 13, amount_usd: 1.5, title: 13th place}
+  - {kind: placement, place: 14, amount_usd: 1.5, title: 14th place}
+  - {kind: placement, place: 15, amount_usd: 1.5, title: 15th place}
+  - {kind: placement, place: 16, amount_usd: 1.5, title: 16th place}
+  - {kind: placement, place: 17, amount_usd: 1.5, title: 17th place}
+  - {kind: placement, place: 18, amount_usd: 1.5, title: 18th place}
+  - {kind: placement, place: 19, amount_usd: 1.5, title: 19th place}
+  - {kind: placement, place: 20, amount_usd: 1.5, title: 20th place}
+  - {kind: placement, place: 21, amount_usd: 1.5, title: 21st place}
+  - {kind: placement, place: 22, amount_usd: 1.5, title: 22nd place}
+  - {kind: placement, place: 23, amount_usd: 1.5, title: 23rd place}
+  - {kind: placement, place: 24, amount_usd: 1.5, title: 24th place}
+  - {kind: placement, place: 25, amount_usd: 1.5, title: 25th place}
+  - {kind: placement, place: 26, amount_usd: 1.5, title: 26th place}
+  - {kind: placement, place: 27, amount_usd: 1.5, title: 27th place}
+  - {kind: placement, place: 28, amount_usd: 1.5, title: 28th place}
+  - {kind: placement, place: 29, amount_usd: 1.5, title: 29th place}
+  - {kind: placement, place: 30, amount_usd: 1.5, title: 30th place}
+  - {kind: placement, place: 31, amount_usd: 1.5, title: 31st place}
+  - {kind: placement, place: 32, amount_usd: 1.5, title: 32nd place}
+  - {kind: placement, place: 33, amount_usd: 1.5, title: 33rd place}
+  - {kind: placement, place: 34, amount_usd: 1.5, title: 34th place}
+  - {kind: placement, place: 35, amount_usd: 1.5, title: 35th place}
+  - {kind: placement, place: 36, amount_usd: 1.5, title: 36th place}
+  - {kind: placement, place: 37, amount_usd: 1.5, title: 37th place}
+  - {kind: placement, place: 38, amount_usd: 1.5, title: 38th place}
+  - {kind: placement, place: 39, amount_usd: 1.5, title: 39th place}
+  - {kind: placement, place: 40, amount_usd: 1.5, title: 40th place}
+  - {kind: placement, place: 41, amount_usd: 1.5, title: 41st place}
+  - {kind: placement, place: 42, amount_usd: 1.5, title: 42nd place}
+  - {kind: placement, place: 43, amount_usd: 1.5, title: 43rd place}
+  - {kind: placement, place: 44, amount_usd: 1.5, title: 44th place}
+  - {kind: placement, place: 45, amount_usd: 1.5, title: 45th place}
+  - {kind: placement, place: 46, amount_usd: 1.5, title: 46th place}
+  - {kind: placement, place: 47, amount_usd: 1.5, title: 47th place}
+  - {kind: placement, place: 48, amount_usd: 1.5, title: 48th place}
+  - {kind: placement, place: 49, amount_usd: 1.5, title: 49th place}
+  - {kind: placement, place: 50, amount_usd: 1.5, title: 50th place}
+  - {kind: placement, place: 51, amount_usd: 1.5, title: 51st place}
+  - {kind: placement, place: 52, amount_usd: 1.5, title: 52nd place}
+  - {kind: placement, place: 53, amount_usd: 1.5, title: 53rd place}
+  - {kind: placement, place: 54, amount_usd: 1.5, title: 54th place}
+  - {kind: placement, place: 55, amount_usd: 1.5, title: 55th place}
+  - {kind: placement, place: 56, amount_usd: 1.5, title: 56th place}
+  - {kind: placement, place: 57, amount_usd: 1.5, title: 57th place}
+  - {kind: placement, place: 58, amount_usd: 1.5, title: 58th place}
+  - {kind: placement, place: 59, amount_usd: 1.5, title: 59th place}
+  - {kind: placement, place: 60, amount_usd: 1.5, title: 60th place}
+  - {kind: placement, place: 61, amount_usd: 1.5, title: 61st place}
+  - {kind: placement, place: 62, amount_usd: 1.5, title: 62nd place}
+  - {kind: placement, place: 63, amount_usd: 1.5, title: 63rd place}
+  - {kind: placement, place: 64, amount_usd: 1.5, title: 64th place}
+  - {kind: placement, place: 65, amount_usd: 1.5, title: 65th place}
+  - {kind: placement, place: 66, amount_usd: 1.5, title: 66th place}
+  - {kind: placement, place: 67, amount_usd: 1.5, title: 67th place}
+  - {kind: placement, place: 68, amount_usd: 1.5, title: 68th place}
+  - {kind: placement, place: 69, amount_usd: 1.5, title: 69th place}
+  - {kind: placement, place: 70, amount_usd: 1.5, title: 70th place}
+  - {kind: placement, place: 71, amount_usd: 1.5, title: 71st place}
+  - {kind: placement, place: 72, amount_usd: 1.5, title: 72nd place}
+  - {kind: placement, place: 73, amount_usd: 1.5, title: 73rd place}
+  - {kind: placement, place: 74, amount_usd: 1.5, title: 74th place}
+  - {kind: placement, place: 75, amount_usd: 1.5, title: 75th place}
+  - {kind: placement, place: 76, amount_usd: 1.5, title: 76th place}
+  - {kind: placement, place: 77, amount_usd: 1.5, title: 77th place}
+  - {kind: placement, place: 78, amount_usd: 1.5, title: 78th place}
+  - {kind: placement, place: 79, amount_usd: 1.5, title: 79th place}
+  - {kind: placement, place: 80, amount_usd: 1.5, title: 80th place}
+  - {kind: placement, place: 81, amount_usd: 1.5, title: 81st place}
+  - {kind: placement, place: 82, amount_usd: 1.5, title: 82nd place}
+  - {kind: placement, place: 83, amount_usd: 1.5, title: 83rd place}
+  - {kind: placement, place: 84, amount_usd: 1.5, title: 84th place}
+  - {kind: placement, place: 85, amount_usd: 1.5, title: 85th place}
+  - {kind: placement, place: 86, amount_usd: 1.5, title: 86th place}
+  - {kind: placement, place: 87, amount_usd: 1.5, title: 87th place}
+  - {kind: placement, place: 88, amount_usd: 1.5, title: 88th place}
+  - {kind: placement, place: 89, amount_usd: 1.5, title: 89th place}
+  - {kind: placement, place: 90, amount_usd: 1.5, title: 90th place}
+  - {kind: placement, place: 91, amount_usd: 1.5, title: 91st place}
+  - {kind: placement, place: 92, amount_usd: 1.5, title: 92nd place}
+  - {kind: placement, place: 93, amount_usd: 1.5, title: 93rd place}
+  - {kind: placement, place: 94, amount_usd: 1.5, title: 94th place}
+  - {kind: placement, place: 95, amount_usd: 1.5, title: 95th place}
+  - {kind: placement, place: 96, amount_usd: 1.5, title: 96th place}
+  - {kind: placement, place: 97, amount_usd: 1.5, title: 97th place}
+  - {kind: placement, place: 98, amount_usd: 1.5, title: 98th place}
+  - {kind: placement, place: 99, amount_usd: 1.5, title: 99th place}
+  - {kind: placement, place: 100, amount_usd: 1.5, title: 100th place}
+
+# limits.wall_budget_sec is not a run's limit here: each case's run is capped by reference/manifest.json's time_cap_ms
+# (8,000). It states the final's per-case cost for the grading budget, 12 x (8 s + about 10 s pod start) = 216 s (the
+# header's Grading budget).
+limits:
+  cpus: 1
+  memory_mb: 1024
+  pids: 64
+  wall_budget_sec: 216
+
+min_authored_coverage: 0.8
+
+prize_requires_beating_baseline: true
+
+# A house entry that beats the gate holds the place it finishes in, unpaid, and no entry moves up (the gate's two
+# baselines never beat the better of them, so neither holds one); the rules say so.
+house_holds_places: true
+
+automation:
+  lifecycle: true
+  payouts: auto
+  escrow: at_open
